@@ -26,6 +26,11 @@ export interface StreamCallbacks {
   onError?: (error: Error) => void
 }
 
+function shouldSendAuthHeader(apiKey: string): boolean {
+  const normalized = apiKey.trim().toLowerCase()
+  return normalized !== '' && normalized !== 'no-key'
+}
+
 /* ------------------------------------------------------------
    Provider 配置（导出供设置面板使用）
    ------------------------------------------------------------ */
@@ -172,7 +177,7 @@ async function extractSearchKeywords(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          ...(shouldSendAuthHeader(apiKey) ? { 'Authorization': `Bearer ${apiKey}` } : {}),
         },
         body: JSON.stringify({
           model: model || providerConfig.defaultModel,
@@ -291,7 +296,7 @@ async function* streamOpenAICompatible(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      ...(shouldSendAuthHeader(apiKey) ? { 'Authorization': `Bearer ${apiKey}` } : {}),
     },
     body: JSON.stringify(requestBody),
   })

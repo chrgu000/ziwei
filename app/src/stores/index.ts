@@ -120,6 +120,12 @@ const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
   customModel: '',
 }
 
+const DEFAULT_CUSTOM_PROVIDER_SETTINGS: ProviderSettings = {
+  apiKey: 'no-key',
+  customBaseUrl: 'https://closely-aviation-suddenly-starring.trycloudflare.com/v1',
+  customModel: 'Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf',
+}
+
 interface SettingsState {
   provider: ModelProvider
   providerSettings: Record<ModelProvider, ProviderSettings>
@@ -140,13 +146,13 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
-      provider: 'kimi',
+      provider: 'custom',
       providerSettings: {
         kimi: { ...DEFAULT_PROVIDER_SETTINGS },
         gemini: { ...DEFAULT_PROVIDER_SETTINGS },
         claude: { ...DEFAULT_PROVIDER_SETTINGS },
         deepseek: { ...DEFAULT_PROVIDER_SETTINGS },
-        custom: { ...DEFAULT_PROVIDER_SETTINGS },
+        custom: { ...DEFAULT_CUSTOM_PROVIDER_SETTINGS },
       },
       enableThinking: false,
       enableWebSearch: false,
