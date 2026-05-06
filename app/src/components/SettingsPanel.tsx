@@ -14,20 +14,8 @@ import { PROVIDER_CONFIGS } from '@/lib/llm'
    ------------------------------------------------------------ */
 
 const PROVIDER_OPTIONS: Array<{ value: ModelProvider; label: string }> = [
-  { value: 'kimi', label: 'Kimi (月之暗面)' },
-  { value: 'gemini', label: 'Gemini (Google)' },
-  { value: 'claude', label: 'Claude (Anthropic)' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'custom', label: '自定义 (OpenAI 兼容)' },
+  { value: 'custom', label: 'Cloudflare Worker 代理模式' },
 ]
-
-const API_DOCS: Record<ModelProvider, string> = {
-  kimi: 'https://platform.moonshot.cn',
-  gemini: 'https://aistudio.google.com/apikey',
-  claude: 'https://console.anthropic.com',
-  deepseek: 'https://platform.deepseek.com',
-  custom: '',
-}
 
 /* ------------------------------------------------------------
    设置面板
@@ -112,7 +100,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
   // 当前厂商的默认配置
   const defaultConfig = PROVIDER_CONFIGS[provider]
-  const docUrl = API_DOCS[provider]
 
   const handleSave = () => {
     updateCurrentProvider({
@@ -173,7 +160,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
       {/* 横幅提示 */}
       <div className="mb-4 p-3 rounded-lg bg-star/10 border border-star/20 text-sm text-text-secondary">
-        <span className="text-star">ⓘ</span> 使用中转 API？展开下方「高级设置」修改 URL 和模型
+        <span className="text-star">ⓘ</span> 当前为 Worker 代理模式。LLM 地址和模型请在 Cloudflare Variables and Secrets 中管理。
       </div>
 
       <div className="space-y-4">
@@ -181,28 +168,23 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         <Select
           label="AI 厂商"
           options={PROVIDER_OPTIONS}
-          value={provider}
+          value="custom"
           onChange={(e) => handleProviderChange(e.target.value as ModelProvider)}
         />
 
         {/* API Key */}
         <Input
           label="API Key"
-          type="password"
-          placeholder="输入你的 API Key"
+          type="text"
+          placeholder="由 Worker Secrets 托管"
           value={localApiKey}
           onChange={(e) => setLocalApiKey(e.target.value)}
+          readOnly
         />
 
-        {/* API 文档链接 */}
-        {docUrl && (
-          <p className="text-xs text-text-muted">
-            获取 API Key:{' '}
-            <a href={docUrl} target="_blank" rel="noopener" className="text-star hover:underline">
-              {docUrl.replace('https://', '')}
-            </a>
-          </p>
-        )}
+        <p className="text-xs text-text-muted">
+          前端不再直连模型服务，API Key 由 Worker 侧 Secrets 读取并转发。
+        </p>
 
         {/* 高级设置折叠区 */}
         <div className="border-t border-white/10 pt-4">
@@ -230,6 +212,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   placeholder={defaultConfig.baseUrl}
                   value={localBaseUrl}
                   onChange={(e) => setLocalBaseUrl(e.target.value)}
+                  readOnly
                   className={`
                     w-full px-3 py-2 rounded-lg text-sm
                     bg-white/5 border transition-colors
@@ -242,7 +225,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   `}
                 />
                 <p className="text-xs text-text-muted mt-1">
-                  默认: {defaultConfig.baseUrl}
+                  该项由 Worker Variables 控制，前端只读展示
                 </p>
               </div>
 
@@ -257,6 +240,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   placeholder={defaultConfig.defaultModel}
                   value={localModel}
                   onChange={(e) => setLocalModel(e.target.value)}
+                  readOnly
                   className={`
                     w-full px-3 py-2 rounded-lg text-sm
                     bg-white/5 border transition-colors
@@ -269,7 +253,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   `}
                 />
                 <p className="text-xs text-text-muted mt-1">
-                  默认: {defaultConfig.defaultModel}
+                  该项由 Worker Variables 控制，前端只读展示
                 </p>
               </div>
 
@@ -374,7 +358,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
         {/* 隐私提示 */}
         <p className="text-xs text-text-muted text-center">
-          API Key 仅保存在你的浏览器本地，不会上传到任何服务器。
+          连接参数已托管至 Worker。修改 Variables and Secrets 后，新请求会直接生效。
         </p>
       </div>
     </div>

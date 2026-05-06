@@ -176,7 +176,12 @@ export const useSettingsStore = create<SettingsState>()(
 
       getCurrentSettings: () => {
         const state = get()
-        return state.providerSettings[state.provider]
+        const current = state.providerSettings[state.provider]
+        return {
+          ...current,
+          // Worker 代理模式下使用 no-key 占位，避免前端因空值阻塞请求。
+          apiKey: current.apiKey.trim() || 'no-key',
+        }
       },
     }),
     {

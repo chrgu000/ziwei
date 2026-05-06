@@ -224,6 +224,7 @@ export function LifeKLine() {
       apiKey: settings.apiKey,
       baseUrl: settings.customBaseUrl || undefined,
       model: settings.customModel || undefined,
+      featureType: 'life-kline',
       enableThinking,
       enableWebSearch,
       searchApiKey,
@@ -346,9 +347,7 @@ export function LifeKLine() {
           >
             {isGenerating ? (progress || '生成中...') : '✨ AI 生成人生 K 线'}
           </button>
-          {!llmConfig.apiKey && (
-            <p className="text-text-muted text-xs">提示：配置 API Key 可使用 AI 分析命盘生成</p>
-          )}
+          <p className="text-text-muted text-xs">提示：K 线生成功能通过 Worker 代理调用模型服务</p>
         </div>
       ) : (
         <>

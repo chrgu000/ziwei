@@ -10,6 +10,7 @@ export interface LLMConfig {
   apiKey: string
   baseUrl?: string
   model?: string
+  featureType?: 'interpretation' | 'yearly-fortune' | 'match-analysis' | 'life-kline'
   enableThinking?: boolean
   enableWebSearch?: boolean
   searchApiKey?: string  // Tavily API Key
@@ -24,11 +25,6 @@ export interface StreamCallbacks {
   onToken?: (token: string) => void
   onComplete?: (fullText: string) => void
   onError?: (error: Error) => void
-}
-
-function shouldSendAuthHeader(apiKey: string): boolean {
-  const normalized = apiKey.trim().toLowerCase()
-  return normalized !== '' && normalized !== 'no-key'
 }
 
 /* ------------------------------------------------------------
@@ -109,91 +105,23 @@ async function searchWithTavily(query: string, apiKey: string): Promise<string> 
    智能搜索关键词提取 (用 LLM 提取精准搜索词)
    ------------------------------------------------------------ */
 
-const KEYWORD_EXTRACTION_PROMPT = `你是紫微斗数搜索助手。从命盘信息中提取最有价值的搜索关键词，用于联网搜索增强解读准确性。
-
-## 要求：
-1. 提取 2-3 个最关键的搜索查询
-2. 每个查询应该是独立的、有针对性的紫微斗数术语组合
-3. 优先关注：命宫主星组合、重要四化、特殊格局
-4. 格式：每行一个查询，不要编号，不要其他说明
-
-## 示例输出：
-紫微斗数 天机太阴 命宫 性格事业
-紫微斗数 武曲化忌 财帛宫 影响化解
-紫微斗数 机月同梁格 特点`
-
 async function extractSearchKeywords(
-  config: LLMConfig,
+  _config: LLMConfig,
   chartContext: string
 ): Promise<string[]> {
-  const { provider, apiKey, baseUrl, model } = config
-  const providerConfig = PROVIDER_CONFIGS[provider]
-
   try {
-    // 使用非流式请求提取关键词
-    if (provider === 'gemini') {
-      // Gemini 非流式
-      const url = `${baseUrl || providerConfig.baseUrl}/models/${model || providerConfig.defaultModel}:generateContent?key=${apiKey}`
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: chartContext }] }],
-          systemInstruction: { parts: [{ text: KEYWORD_EXTRACTION_PROMPT }] },
-        }),
-      })
+    const coreTokens = ['命宫', '财帛宫', '官禄宫', '夫妻宫', '化禄', '化权', '化科', '化忌']
+    const matched = coreTokens.filter((token) => chartContext.includes(token)).slice(0, 3)
 
-      if (!response.ok) return []
-      const data = await response.json()
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      return text.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
-
-    } else if (provider === 'claude') {
-      // Claude 非流式
-      const response = await fetch(`${baseUrl || providerConfig.baseUrl}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: model || providerConfig.defaultModel,
-          max_tokens: 200,
-          system: KEYWORD_EXTRACTION_PROMPT,
-          messages: [{ role: 'user', content: chartContext }],
-        }),
-      })
-
-      if (!response.ok) return []
-      const data = await response.json()
-      const text = data.content?.[0]?.text || ''
-      return text.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
-
-    } else {
-      // OpenAI 兼容 (Kimi, DeepSeek, Custom)
-      const url = `${baseUrl || providerConfig.baseUrl}/chat/completions`
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(shouldSendAuthHeader(apiKey) ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model: model || providerConfig.defaultModel,
-          messages: [
-            { role: 'system', content: KEYWORD_EXTRACTION_PROMPT },
-            { role: 'user', content: chartContext },
-          ],
-          max_tokens: 200,
-        }),
-      })
-
-      if (!response.ok) return []
-      const data = await response.json()
-      const text = data.choices?.[0]?.message?.content || ''
-      return text.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+    if (matched.length === 0) {
+      return [
+        '紫微斗数 命宫 主星 解读',
+        '紫微斗数 四化 飞星 分析',
+        '紫微斗数 三方四正 格局',
+      ]
     }
+
+    return matched.map((token) => `紫微斗数 ${token} 解读`)
   } catch (err) {
     console.warn('Keyword extraction failed:', err)
     return []
@@ -248,39 +176,11 @@ async function* streamOpenAICompatible(
   config: LLMConfig,
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
-  const { provider, apiKey, baseUrl, model, enableThinking, enableWebSearch, searchApiKey } = config
-  const providerConfig = PROVIDER_CONFIGS[provider]
-
-  // 确定使用的模型（思考模式切换专用模型）
-  let useModel = model || providerConfig.defaultModel
-  if (enableThinking && !model) {
-    if (provider === 'deepseek') {
-      useModel = 'deepseek-v3.2-speciale'
-    } else if (provider === 'kimi') {
-      useModel = 'kimi-k2-thinking'
-    }
-  }
-
-  const url = `${baseUrl || providerConfig.baseUrl}/chat/completions`
-
-  // 构建请求体
-  const requestBody: Record<string, unknown> = {
-    model: useModel,
-    messages,
-    stream: true,
-  }
-
-  // Kimi 原生搜索
-  if (enableWebSearch && provider === 'kimi') {
-    requestBody.tools = [{
-      type: 'builtin_function',
-      function: { name: '$web_search' },
-    }]
-  }
-
-  // 非 Kimi 且有 Tavily API，使用智能搜索
+  const { provider, model, featureType, enableThinking, enableWebSearch, searchApiKey } = config
   let processedMessages = messages
-  if (enableWebSearch && provider !== 'kimi' && searchApiKey) {
+
+  // 仅在前端配置了 Tavily 时预先补充搜索资料，然后交给 Worker 统一转发。
+  if (enableWebSearch && searchApiKey) {
     const searchResult = await performSmartSearch(config, messages)
     if (searchResult) {
       processedMessages = messages.map((m, i) =>
@@ -289,20 +189,26 @@ async function* streamOpenAICompatible(
           : m
       )
     }
-    requestBody.messages = processedMessages
   }
 
-  const response = await fetch(url, {
+  const response = await fetch('/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(shouldSendAuthHeader(apiKey) ? { 'Authorization': `Bearer ${apiKey}` } : {}),
     },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify({
+      stream: true,
+      provider,
+      model,
+      featureType,
+      enableThinking,
+      enableWebSearch,
+      messages: processedMessages,
+    }),
   })
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`)
+    throw new Error(`Worker Proxy Error: ${response.status} ${response.statusText}`)
   }
 
   const reader = response.body?.getReader()
@@ -320,12 +226,17 @@ async function* streamOpenAICompatible(
     buffer = lines.pop() || ''
 
     for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6)
+      if (line.startsWith('data:')) {
+        const data = line.slice(5).trim()
         if (data === '[DONE]') return
         try {
           const json = JSON.parse(data)
-          const content = json.choices?.[0]?.delta?.content
+          const content =
+            json.choices?.[0]?.delta?.content ||
+            json.delta?.text ||
+            json.text ||
+            json.token ||
+            ''
           if (content) yield content
         } catch {
           // 忽略解析错误
@@ -343,77 +254,7 @@ async function* streamGemini(
   config: LLMConfig,
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
-  const { apiKey, model, baseUrl, enableThinking, enableWebSearch } = config
-  const providerConfig = PROVIDER_CONFIGS.gemini
-
-  // 思考模式切换到 gemini-3-pro-preview
-  let modelName = model || providerConfig.defaultModel
-  if (enableThinking && !model) {
-    modelName = 'gemini-3-pro-preview'
-  }
-
-  // 转换消息格式
-  const contents = messages
-    .filter(m => m.role !== 'system')
-    .map(m => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }))
-
-  // 系统消息作为 systemInstruction
-  const systemMessage = messages.find(m => m.role === 'system')
-
-  const url = `${baseUrl || providerConfig.baseUrl}/models/${modelName}:streamGenerateContent?key=${apiKey}`
-
-  // 构建请求体
-  const requestBody: Record<string, unknown> = {
-    contents,
-    systemInstruction: systemMessage ? { parts: [{ text: systemMessage.content }] } : undefined,
-  }
-
-  // Gemini 原生 Google 搜索
-  if (enableWebSearch) {
-    requestBody.tools = [{ google_search: {} }]
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Gemini API Error: ${response.status}`)
-  }
-
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('No response body')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-
-    // Gemini 返回的是 JSON 数组流
-    try {
-      const matches = buffer.match(/\{[^{}]*"text"\s*:\s*"[^"]*"[^{}]*\}/g)
-      if (matches) {
-        for (const match of matches) {
-          const json = JSON.parse(match)
-          if (json.text) {
-            yield json.text
-            buffer = buffer.replace(match, '')
-          }
-        }
-      }
-    } catch {
-      // 继续读取
-    }
-  }
+  yield* streamOpenAICompatible(config, messages)
 }
 
 /* ------------------------------------------------------------
@@ -424,83 +265,7 @@ async function* streamClaude(
   config: LLMConfig,
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
-  const { apiKey, model, baseUrl, enableThinking, enableWebSearch, searchApiKey } = config
-  const providerConfig = PROVIDER_CONFIGS.claude
-
-  // 提取系统消息
-  let systemMessage = messages.find(m => m.role === 'system')?.content || ''
-  const chatMessages = messages.filter(m => m.role !== 'system')
-
-  // 如果启用搜索且有 Tavily API，使用智能搜索
-  if (enableWebSearch && searchApiKey) {
-    const searchResult = await performSmartSearch(config, messages)
-    if (searchResult) {
-      systemMessage += searchResult
-    }
-  }
-
-  // 构建请求体
-  const requestBody: Record<string, unknown> = {
-    model: model || providerConfig.defaultModel,
-    max_tokens: enableThinking ? 16000 : 4096,
-    system: systemMessage,
-    messages: chatMessages,
-    stream: true,
-  }
-
-  // 如果启用思考模式
-  if (enableThinking) {
-    requestBody.thinking = {
-      type: 'enabled',
-      budget_tokens: 10000,
-    }
-  }
-
-  const response = await fetch(`${baseUrl || providerConfig.baseUrl}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(requestBody),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Claude API Error: ${response.status}`)
-  }
-
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('No response body')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        try {
-          const json = JSON.parse(line.slice(6))
-          // 处理普通文本输出
-          if (json.type === 'content_block_delta') {
-            if (json.delta?.type === 'text_delta') {
-              yield json.delta.text || ''
-            }
-            // thinking 内容也可以选择输出（当前跳过）
-          }
-        } catch {
-          // 忽略
-        }
-      }
-    }
-  }
+  yield* streamOpenAICompatible(config, messages)
 }
 
 /* ------------------------------------------------------------

@@ -232,11 +232,6 @@ export function MatchAnalysis() {
   const [error, setError] = useState<string | null>(null)
 
   const handleAnalyze = useCallback(async () => {
-    if (!currentSettings.apiKey) {
-      setError('请先在设置中配置 API Key')
-      return
-    }
-
     setLoading(true)
     setError(null)
     setResult('')
@@ -280,6 +275,7 @@ ${context2}
         apiKey: currentSettings.apiKey,
         baseUrl: currentSettings.customBaseUrl || undefined,
         model: currentSettings.customModel || undefined,
+        featureType: 'match-analysis',
         enableThinking,
         enableWebSearch,
         searchApiKey: searchApiKey || undefined,
@@ -331,7 +327,7 @@ ${context2}
 
           <Button
             onClick={handleAnalyze}
-            disabled={loading || !currentSettings.apiKey}
+            disabled={loading}
             size="sm"
             variant="gold"
           >
@@ -340,7 +336,7 @@ ${context2}
                 <span className="w-3 h-3 border-2 border-night border-t-transparent rounded-full animate-spin" />
                 分析中
               </span>
-            ) : currentSettings.apiKey ? '开始合盘分析' : '请先配置 API'}
+            ) : '开始合盘分析'}
           </Button>
         </div>
 
@@ -376,16 +372,8 @@ ${context2}
           "
         />
 
-        {/* 未配置提示 */}
-        {!currentSettings.apiKey && !result && (
-          <div className="text-text-muted text-sm py-8 text-center">
-            <div className="text-3xl mb-3 opacity-30">⚭</div>
-            请先在设置中配置 AI 模型的 API Key，即可获得双人合盘分析。
-          </div>
-        )}
-
         {/* 未分析提示 */}
-        {currentSettings.apiKey && !result && !loading && (
+        {!result && !loading && (
           <div className="text-text-muted text-sm py-8 text-center">
             <div className="text-3xl mb-3 opacity-30">⚭</div>
             输入双方信息并点击「开始合盘分析」
